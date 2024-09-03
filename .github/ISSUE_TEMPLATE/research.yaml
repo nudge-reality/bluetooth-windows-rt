@@ -1,0 +1,61 @@
+name: 📖 Research
+description: Timebox effort to research new/existing technology.
+labels: ['research']
+projects: ["nudge-reality/4"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        > [!IMPORTANT]
+        > Please provide details about the research task. Include objectives, key questions, and any relevant background information to ensure comprehensive understanding and effective completion.
+
+  - type: textarea
+    id: research_objective
+    attributes:
+      label: Research Objective
+      description: Describe the objective of the research, including the problem it aims to solve or the question it seeks to answer.
+      placeholder: Describe the objective of the research
+    validations:
+      required: true
+
+  - type: textarea
+    id: key_questions
+    attributes:
+      label: Key Questions
+      description: List the key questions this research aims to answer.
+      placeholder: List the key questions for this research
+    validations:
+      required: true
+
+  - type: textarea
+    id: background_information
+    attributes:
+      label: Background Information
+      description: Provide any relevant background information or context for this research task.
+      placeholder: Include any relevant background information or context
+      value: |
+        _N/A_
+    validations:
+      required: false
+
+  - type: textarea
+    id: expected_outcomes
+    attributes:
+      label: Expected Outcomes
+      description: Describe the expected outcomes or deliverables from this research.
+      placeholder: Describe the expected outcomes or deliverables
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional_context
+    attributes:
+      label: Additional Context
+      description: Add any other context or relevant information about the research task.
+      placeholder: Include any additional context or relevant information
+      value: |
+        _N/A_
+    validations:
+      required: false

@@ -1,0 +1,43 @@
+name: 🧹 Chore
+description: Need to perform maintenance, update dependencies or track a routine task?
+labels: ['chore']
+projects: ["nudge-reality/4"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        > [!IMPORTANT]
+        > Please provide details about the routine task or maintenance required. Be as specific as possible to ensure clear understanding and efficient completion.
+
+  - type: textarea
+    id: chore_description
+    attributes:
+      label: Chore Description
+      description: Provide a detailed description of the task, including the purpose and any specific instructions.
+      placeholder: Describe the chore in detail, including its purpose and any specific instructions
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps_to_complete
+    attributes:
+      label: Steps to Complete
+      description: List the steps required to complete the task.
+      placeholder: Provide the steps required to complete the task
+      value: |
+        _N/A_
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional_context
+    attributes:
+      label: Additional Context
+      description: Add any other context or relevant information about the chore.
+      placeholder: Include any additional context or relevant information
+      value: |
+        _N/A_
+    validations:
+      required: false
