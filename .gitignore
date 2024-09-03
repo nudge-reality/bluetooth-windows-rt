@@ -1,8 +1,11 @@
-
 .vs/
 bin/
 obj/
 Debug/
+Release/
 x64/
 
+packages/
+
 *.aps
+
