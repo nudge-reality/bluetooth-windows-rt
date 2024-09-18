@@ -27,6 +27,12 @@ struct BLEData {
 	wchar_t characteristicUuid[256];
 };
 
+struct BLECharacteristic {
+	wchar_t deviceId[256];
+	wchar_t serviceUuid[256];
+	wchar_t characteristicUuid[256];
+};
+
 struct ErrorMessage {
 	wchar_t msg[1024];
 };
@@ -54,6 +60,8 @@ extern "C" {
 	__declspec(dllexport) bool PollData(BLEData* data, bool block);
 
 	__declspec(dllexport) bool SendData(BLEData* data, bool block);
+
+	__declspec(dllexport) bool ReadData(BLECharacteristic* id, BLEData* data, bool block);
 
 	__declspec(dllexport) void Quit();
 

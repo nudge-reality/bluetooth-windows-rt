@@ -7,6 +7,12 @@ using UnityEngine;
 
 public class BLE
 {
+    const string DLL_NAME =
+#if DEBUG
+        "BleWinrtDllDebug.dll";
+#else
+        "BleWinrtDll.dll";
+#endif
     // dll calls
     class Impl
     {
@@ -27,13 +33,13 @@ public class BLE
             public bool nameUpdated;
         }
 
-        [DllImport("BleWinrtDll.dll", EntryPoint = "StartDeviceScan")]
+        [DllImport(DLL_NAME, EntryPoint = "StartDeviceScan")]
         public static extern void StartDeviceScan();
 
-        [DllImport("BleWinrtDll.dll", EntryPoint = "PollDevice")]
+        [DllImport(DLL_NAME, EntryPoint = "PollDevice")]
         public static extern ScanStatus PollDevice(out DeviceUpdate device, bool block);
 
-        [DllImport("BleWinrtDll.dll", EntryPoint = "StopDeviceScan")]
+        [DllImport(DLL_NAME, EntryPoint = "StopDeviceScan")]
         public static extern void StopDeviceScan();
 
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
@@ -43,10 +49,10 @@ public class BLE
             public string uuid;
         };
 
-        [DllImport("BleWinrtDll.dll", EntryPoint = "ScanServices", CharSet = CharSet.Unicode)]
+        [DllImport(DLL_NAME, EntryPoint = "ScanServices", CharSet = CharSet.Unicode)]
         public static extern void ScanServices(string deviceId);
 
-        [DllImport("BleWinrtDll.dll", EntryPoint = "PollService")]
+        [DllImport(DLL_NAME, EntryPoint = "PollService")]
         public static extern ScanStatus PollService(out Service service, bool block);
 
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
@@ -56,15 +62,15 @@ public class BLE
             public string uuid;
             [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 100)]
             public string userDescription;
-        };
+        };        
 
-        [DllImport("BleWinrtDll.dll", EntryPoint = "ScanCharacteristics", CharSet = CharSet.Unicode)]
+        [DllImport(DLL_NAME, EntryPoint = "ScanCharacteristics", CharSet = CharSet.Unicode)]
         public static extern void ScanCharacteristics(string deviceId, string serviceId);
 
-        [DllImport("BleWinrtDll.dll", EntryPoint = "PollCharacteristic")]
+        [DllImport(DLL_NAME, EntryPoint = "PollCharacteristic")]
         public static extern ScanStatus PollCharacteristic(out Characteristic characteristic, bool block);
 
-        [DllImport("BleWinrtDll.dll", EntryPoint = "SubscribeCharacteristic", CharSet = CharSet.Unicode)]
+        [DllImport(DLL_NAME, EntryPoint = "SubscribeCharacteristic", CharSet = CharSet.Unicode)]
         public static extern bool SubscribeCharacteristic(string deviceId, string serviceId, string characteristicId, bool block);
 
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
@@ -82,13 +88,27 @@ public class BLE
             public string characteristicUuid;
         };
 
-        [DllImport("BleWinrtDll.dll", EntryPoint = "PollData")]
+        [DllImport(DLL_NAME, EntryPoint = "PollData")]
         public static extern bool PollData(out BLEData data, bool block);
 
-        [DllImport("BleWinrtDll.dll", EntryPoint = "SendData")]
+        [DllImport(DLL_NAME, EntryPoint = "SendData")]
         public static extern bool SendData(in BLEData data, bool block);
 
-        [DllImport("BleWinrtDll.dll", EntryPoint = "Quit")]
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        public struct BLECharacteristic
+        {
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)]
+            public string deviceId;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)]
+            public string serviceUuid;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)]
+            public string characteristicUuid;
+        };
+
+        [DllImport(DLL_NAME, EntryPoint = "ReadData")]
+        public static extern bool ReadData(in BLECharacteristic id, out BLEData dataOut, bool block);
+
+        [DllImport(DLL_NAME, EntryPoint = "Quit")]
         public static extern void Quit();
 
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
@@ -98,7 +118,7 @@ public class BLE
             public string msg;
         };
 
-        [DllImport("BleWinrtDll.dll", EntryPoint = "GetError")]
+        [DllImport(DLL_NAME, EntryPoint = "GetError")]
         public static extern void GetError(out ErrorMessage buf);
     }
 
@@ -137,9 +157,10 @@ public class BLE
             List<string> deviceIds = new List<string>();
             Dictionary<string, string> deviceName = new Dictionary<string, string>();
             Dictionary<string, bool> deviceIsConnectable = new Dictionary<string, bool>();
-            Impl.ScanStatus status;
-            while (Impl.PollDevice(out res, true) != Impl.ScanStatus.FINISHED)
+            Impl.ScanStatus status = Impl.ScanStatus.PROCESSING;
+            do
             {
+                status = Impl.PollDevice(out res, true);
                 if (!deviceIds.Contains(res.id))
                 {
                     deviceIds.Add(res.id);
@@ -151,17 +172,50 @@ public class BLE
                 if (res.isConnectableUpdated)
                     deviceIsConnectable[res.id] = res.isConnectable;
                 // connectable device
-                if (deviceName[res.id] != "" && deviceIsConnectable[res.id] == true)
+                if (deviceName[res.id] != "")
                     currentScan.Found?.Invoke(res.id, deviceName[res.id]);
                 // check if scan was cancelled in callback
                 if (currentScan.cancelled)
                     break;
-            }
+            } while (status != Impl.ScanStatus.FINISHED);
             currentScan.Finished?.Invoke();
             scanThread = null;
         });
         scanThread.Start();
         return currentScan;
+    }
+
+    public static Dictionary<string, ushort> ReadData(string deviceId, Dictionary<string, Dictionary<string, string>> profile)
+    {
+        Dictionary<string, ushort> ret = new Dictionary<string, ushort>();
+        foreach (var service in profile)
+        {
+            foreach (var characteristics in service.Value)
+            {
+                Impl.BLECharacteristic characteristic = new Impl.BLECharacteristic
+                {
+                    deviceId = deviceId,
+                    serviceUuid = service.Key,
+                    characteristicUuid = characteristics.Key
+                };
+                Impl.BLEData data = new Impl.BLEData
+                {
+                    buf = new byte[512]
+                };
+                data.buf[0] = 1;
+                bool gotData = Impl.ReadData(characteristic, out data, true);
+                if (gotData)
+                {
+                    if (data.size > 0)
+                    {
+                        Debug.Log(data.size);
+                        //Debug.Log(data.buf);
+                    }
+                    ret.Add(characteristics.Key, (ushort)(data.buf[0] + (data.buf[1] << 8)));
+                }
+            }
+        }
+        return ret;
     }
 
     public static void RetrieveProfile(string deviceId, string serviceUuid)
@@ -203,6 +257,46 @@ public class BLE
             throw new Exception("Connection failed: " + GetError());
         isConnected = true;
         return true;
+    }
+
+    public static Dictionary<string, Dictionary<string, string>> GetProfile(string deviceId)
+    {
+        Dictionary<string, Dictionary<string, string>> device = new Dictionary<string, Dictionary<string, string>>();
+        Impl.ScanServices(deviceId);
+        Impl.Service service = new Impl.Service();
+        Impl.ScanStatus status;
+        do
+        {
+            status = Impl.PollService(out service, false);
+            if (status == Impl.ScanStatus.AVAILABLE)
+            {
+                Debug.Log("service found: " + service.uuid);
+                if (!string.IsNullOrEmpty(service.uuid) && !device.ContainsKey(service.uuid))
+                {
+                    device.Add(service.uuid, new Dictionary<string, string>());
+                }
+            }
+            Thread.Sleep(10);
+        } while (status != Impl.ScanStatus.FINISHED);
+        // wait some delay to prevent error
+        Thread.Sleep(200);
+        Impl.Characteristic c = new Impl.Characteristic();
+        foreach (var s in device)
+        {
+            Impl.ScanCharacteristics(deviceId, s.Key);
+            do {
+                status = Impl.PollCharacteristic(out c, false);
+                if (status == Impl.ScanStatus.AVAILABLE)
+                {
+                    Debug.Log("characteristic found: " + c.uuid + ", user description: " + c.userDescription);
+                    if (!s.Value.ContainsKey(c.uuid))
+                    {
+                        s.Value.Add(c.uuid, c.userDescription);
+                    }
+                }
+            } while (status != Impl.ScanStatus.FINISHED);
+        }
+        return device;
     }
 
     public static bool WritePackage(string deviceId, string serviceUuid, string characteristicUuid, byte[] data)
