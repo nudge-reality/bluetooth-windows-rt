@@ -2,6 +2,9 @@
 
 #include "stdafx.h"
 
+//Macro to determine the length of an C array
+#define ARRAY_LENGTH(a) ((sizeof((a))) / (sizeof(*(a))))
+
 struct DeviceUpdate {
 	wchar_t id[100];
 	bool isConnectable = false;

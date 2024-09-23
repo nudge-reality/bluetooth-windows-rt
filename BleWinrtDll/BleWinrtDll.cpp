@@ -570,13 +570,16 @@ fire_and_forget ReadDataAsync(BLECharacteristic* id, BLEData* data, condition_va
 			if (status.Status() == GattCommunicationStatus::Success) {
 				auto value = status.Value();
 				auto valueData = value.data();
-				for (uint32_t i = 0; i < value.Length(); ++i) {
+				uint32_t length = max(value.Length(), ARRAY_LENGTH(data->buf));
+				for (uint32_t i = 0; i < length; ++i) {
 					data->buf[i] = valueData[i];
+				}
+				if (length < value.Length()) {
+					saveError(L"%s:%d Not all data could fit in the buffer, characteristic uuid: %s", __WFILE__, __LINE__, id->characteristicUuid);
 				}
 				data->size = value.Length();
 				if (result != 0)
 					*result = true;
-				saveError(L"got data from %s", id->characteristicUuid);
 			}
 			else {
 				saveError(L"%s:%d (%d)Error reading value from characteristic with uuid %s", __WFILE__, __LINE__, (int)status.Status(), id->characteristicUuid);

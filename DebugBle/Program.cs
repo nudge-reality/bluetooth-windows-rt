@@ -36,6 +36,8 @@ namespace DebugBle
             if (deviceId == "-1")
             {
                 Console.WriteLine("no device found!");
+                Console.WriteLine("Press enter to exit the program...");
+                Console.ReadLine();
                 return;
             }
 
