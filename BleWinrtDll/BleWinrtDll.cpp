@@ -320,7 +320,7 @@ fire_and_forget ScanServicesAsync(wchar_t* deviceId) {
 	try {
 		auto bluetoothLeDevice = co_await retrieveDevice(deviceId);
 		if (bluetoothLeDevice != nullptr) {
-			GattDeviceServicesResult result = co_await bluetoothLeDevice.GetGattServicesAsync(BluetoothCacheMode::Uncached);
+			GattDeviceServicesResult result = co_await bluetoothLeDevice.GetGattServicesAsync(BluetoothCacheMode::Cached);
 			if (result.Status() == GattCommunicationStatus::Success) {
 				IVectorView<GattDeviceService> services = result.Services();
 				for (auto&& service : services)
@@ -340,7 +340,7 @@ fire_and_forget ScanServicesAsync(wchar_t* deviceId) {
 				}
 			}
 			else {
-				saveError(L"%s:%d Failed retrieving services.", __WFILE__, __LINE__);
+				saveError(L"%s:%d (%d)Failed retrieving services.", __WFILE__, __LINE__, (int)result.Status());
 			}
 		}
 	}
@@ -384,7 +384,7 @@ fire_and_forget ScanCharacteristicsAsync(wchar_t* deviceId, wchar_t* serviceId) 
 	try {
 		auto service = co_await retrieveService(deviceId, serviceId);
 		if (service != nullptr) {
-			GattCharacteristicsResult charScan = co_await service.GetCharacteristicsAsync(BluetoothCacheMode::Uncached);
+			GattCharacteristicsResult charScan = co_await service.GetCharacteristicsAsync(BluetoothCacheMode::Cached);
 			if (charScan.Status() != GattCommunicationStatus::Success)
 				saveError(L"%s:%d Error scanning characteristics from service %s width status %d", __WFILE__, __LINE__, serviceId, (int)charScan.Status());
 			else {
@@ -479,6 +479,7 @@ void Characteristic_ValueChanged(GattCharacteristic const& characteristic, GattV
 		dataQueueSignal.notify_one();
 	}
 }
+
 fire_and_forget SubscribeCharacteristicAsync(wchar_t* deviceId, wchar_t* serviceId, wchar_t* characteristicId, bool* result) {
 	try {
 		auto characteristic = co_await retrieveCharacteristic(deviceId, serviceId, characteristicId);
@@ -554,6 +555,55 @@ bool SendData(BLEData* data, bool block) {
 	bool result = false;
 	// copy data to stack so that caller can free its memory in non-blocking mode
 	SendDataAsync(*data, block ? &signal : 0, block ? &result : 0);
+	if (block)
+		signal.wait(lock);
+
+	return result;
+}
+
+fire_and_forget ReadDataAsync(BLECharacteristic* id, BLEData* data, condition_variable* signal, bool* result) {
+	try {
+		auto characteristic = co_await retrieveCharacteristic(id->deviceId, id->serviceUuid, id->characteristicUuid);
+		if (characteristic != nullptr) {
+			//Retrieve data from device not from windows cache
+			auto status = co_await characteristic.ReadValueAsync(BluetoothCacheMode::Uncached);
+			if (status.Status() == GattCommunicationStatus::Success) {
+				auto value = status.Value();
+				auto valueData = value.data();
+				uint32_t length = max(value.Length(), ARRAY_LENGTH(data->buf));
+				for (uint32_t i = 0; i < length; ++i) {
+					data->buf[i] = valueData[i];
+				}
+				if (length < value.Length()) {
+					saveError(L"%s:%d Not all data could fit in the buffer, characteristic uuid: %s", __WFILE__, __LINE__, id->characteristicUuid);
+				}
+				data->size = value.Length();
+				if (result != 0)
+					*result = true;
+			}
+			else {
+				saveError(L"%s:%d (%d)Error reading value from characteristic with uuid %s", __WFILE__, __LINE__, (int)status.Status(), id->characteristicUuid);
+			}
+		}
+	}
+	catch (hresult_error& ex)
+	{
+		saveError(L"%s:%d ReadDataAsync catch: %s", __WFILE__, __LINE__, ex.message().c_str());
+	}
+	if (signal != 0)
+		signal->notify_one();
+}
+bool ReadData(BLECharacteristic* id, BLEData* data, bool block) {
+	if (data == nullptr || id == nullptr)
+	{
+		saveError(L"%s:%d ReadData data or id can not be NULL", __WFILE__, __LINE__);
+		return false;
+	}
+	mutex _mutex;
+	unique_lock<mutex> lock(_mutex);
+	condition_variable signal;
+	bool result = false;
+	ReadDataAsync(id, data, block ? &signal : 0, block ? &result : 0);
 	if (block)
 		signal.wait(lock);
 

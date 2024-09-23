@@ -2,6 +2,9 @@
 
 #include "stdafx.h"
 
+//Macro to determine the length of an C array
+#define ARRAY_LENGTH(a) ((sizeof((a))) / (sizeof(*(a))))
+
 struct DeviceUpdate {
 	wchar_t id[100];
 	bool isConnectable = false;
@@ -22,6 +25,12 @@ struct Characteristic {
 struct BLEData {
 	uint8_t buf[512];
 	uint16_t size;
+	wchar_t deviceId[256];
+	wchar_t serviceUuid[256];
+	wchar_t characteristicUuid[256];
+};
+
+struct BLECharacteristic {
 	wchar_t deviceId[256];
 	wchar_t serviceUuid[256];
 	wchar_t characteristicUuid[256];
@@ -54,6 +63,8 @@ extern "C" {
 	__declspec(dllexport) bool PollData(BLEData* data, bool block);
 
 	__declspec(dllexport) bool SendData(BLEData* data, bool block);
+
+	__declspec(dllexport) bool ReadData(BLECharacteristic* id, BLEData* data, bool block);
 
 	__declspec(dllexport) void Quit();
 

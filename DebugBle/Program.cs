@@ -20,7 +20,7 @@ namespace DebugBle
             scan.Found = (_deviceId, deviceName) =>
             {
                 Console.WriteLine("found device with name: " + deviceName);
-                if (deviceId == null && deviceName == "CynteractGlove")
+                if (deviceId == null && deviceName == "D_Glove_IMU_L_F")
                     deviceId = _deviceId;
             };
             scan.Finished = () =>
@@ -36,24 +36,35 @@ namespace DebugBle
             if (deviceId == "-1")
             {
                 Console.WriteLine("no device found!");
+                Console.WriteLine("Press enter to exit the program...");
+                Console.ReadLine();
                 return;
             }
 
-            ble.Connect(deviceId,
-                "{f6f04ffa-9a61-11e9-a2a3-2a2ae2dbcce4}", 
-                new string[] { "{f6f07c3c-9a61-11e9-a2a3-2a2ae2dbcce4}",
-                    "{f6f07da4-9a61-11e9-a2a3-2a2ae2dbcce4}",
-                    "{f6f07ed0-9a61-11e9-a2a3-2a2ae2dbcce4}" });
+            var profile = BLE.GetProfile(deviceId);
 
-            for(int guard = 0; guard < 2000; guard++)
+            foreach(var service in profile)
             {
-                BLE.ReadPackage();
-                BLE.WritePackage(deviceId,
-                    "{f6f04ffa-9a61-11e9-a2a3-2a2ae2dbcce4}",
-                    "{f6f07ffc-9a61-11e9-a2a3-2a2ae2dbcce4}",
-                    new byte[] { 0, 1, 2 });
-                Console.WriteLine(BLE.GetError());
-                Thread.Sleep(5);
+                Console.WriteLine("Service: " + service.Key);
+                foreach(var characteristics in service.Value)
+                {
+                    Console.WriteLine("Characteristics: " + characteristics.Key + " " + characteristics.Value);
+                }
+            }
+
+
+            bool done = false;
+            while (!done)
+            {
+                var data = BLE.ReadData(deviceId, profile);
+                foreach (var dat in data)
+                {
+                    if (dat.Value != 0)
+                    {
+                        done = true;
+                        break;
+                    }
+                }
             }
 
             Console.WriteLine("Press enter to exit the program...");
