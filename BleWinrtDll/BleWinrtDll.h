@@ -22,18 +22,20 @@ struct Characteristic {
 	wchar_t userDescription[100];
 };
 
+#define UUID_LENGTH 256
+
 struct BLEData {
 	uint8_t buf[512];
 	uint16_t size;
-	wchar_t deviceId[256];
-	wchar_t serviceUuid[256];
-	wchar_t characteristicUuid[256];
+	wchar_t deviceId[UUID_LENGTH];
+	wchar_t serviceUuid[UUID_LENGTH];
+	wchar_t characteristicUuid[UUID_LENGTH];
 };
 
 struct BLECharacteristic {
-	wchar_t deviceId[256];
-	wchar_t serviceUuid[256];
-	wchar_t characteristicUuid[256];
+	wchar_t deviceId[UUID_LENGTH];
+	wchar_t serviceUuid[UUID_LENGTH];
+	wchar_t characteristicUuid[UUID_LENGTH];
 };
 
 struct ErrorMessage {
@@ -64,8 +66,12 @@ extern "C" {
 
 	__declspec(dllexport) bool SendData(BLEData* data, bool block);
 
-	__declspec(dllexport) bool ReadData(BLECharacteristic* id, BLEData* data, bool block);
+	__declspec(dllexport) void ReadData(BLECharacteristic* id);
 
+	__declspec(dllexport) void StopReadData(BLECharacteristic* id);
+
+	__declspec(dllexport) void PollReadData(BLECharacteristic* id, uint8_t* data);
+	
 	__declspec(dllexport) void Quit();
 
 	__declspec(dllexport) void GetError(ErrorMessage* buf);
