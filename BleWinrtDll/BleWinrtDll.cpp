@@ -4,6 +4,7 @@
 #include "stdafx.h"
 
 #include "BleWinrtDll.h"
+//#include <coroutine>
 
 #pragma comment(lib, "windowsapp")
 
@@ -60,7 +61,6 @@ guid make_guid(const wchar_t* value)
 			// skip char
 		}
 	}
-
 	return to_guid.guid;
 }
 
@@ -105,7 +105,7 @@ void saveError(const wchar_t* message, ...) {
 	va_start(args, message);
 	vswprintf_s(last_error, message, args);
 	va_end(args);
-	wcout << last_error << endl;
+	//wcout << last_error << endl;
 }
 
 IAsyncOperation<BluetoothLEDevice> retrieveDevice(wchar_t* deviceId) {
@@ -165,8 +165,6 @@ IAsyncOperation<GattCharacteristic> retrieveCharacteristic(wchar_t* deviceId, wc
 		co_return cache[hsh(deviceId)].services[hsh(serviceId)].characteristics[hsh(characteristicId)].characteristic;
 	}
 }
-
-
 
 DeviceWatcher deviceWatcher{ nullptr };
 DeviceWatcher::Added_revoker deviceWatcherAddedRevoker;
@@ -384,7 +382,7 @@ fire_and_forget ScanCharacteristicsAsync(wchar_t* deviceId, wchar_t* serviceId) 
 	try {
 		auto service = co_await retrieveService(deviceId, serviceId);
 		if (service != nullptr) {
-			GattCharacteristicsResult charScan = co_await service.GetCharacteristicsAsync(BluetoothCacheMode::Cached);
+			GattCharacteristicsResult charScan = co_await service.GetCharacteristicsAsync();
 			if (charScan.Status() != GattCommunicationStatus::Success)
 				saveError(L"%s:%d Error scanning characteristics from service %s width status %d", __WFILE__, __LINE__, serviceId, (int)charScan.Status());
 			else {
@@ -561,53 +559,184 @@ bool SendData(BLEData* data, bool block) {
 	return result;
 }
 
-fire_and_forget ReadDataAsync(BLECharacteristic* id, BLEData* data, condition_variable* signal, bool* result) {
+//Internal class for handling a coroutine constantly Reading data from characteristic
+//Thread safe?
+class Reading {
+ 	bool reading = true;
+	mutex readingMutex;
+
+	mutex valuesMutex;
+	condition_variable doneSignal;
+	uint8_t values[512] = {};
+	uint32_t valueCount = 0;
+	uint32_t readIndex = -1;
+	BLECharacteristic characteristics;
+	bool done = false;
+public:
+
+	wchar_t* getDevice() { return this->characteristics.deviceId; }
+	wchar_t* getService() { return this->characteristics.serviceUuid; }
+	wchar_t* getCharacteristic() { return this->characteristics.characteristicUuid; }
+
+	bool operator<(Reading& other) {
+		int val = wcscmp(this->characteristics.deviceId, other.characteristics.deviceId);
+		if (val != 0) return val < 0;
+		val = wcscmp(this->characteristics.serviceUuid, other.characteristics.serviceUuid);
+		if (val != 0) return val < 0;
+		val = wcscmp(this->characteristics.characteristicUuid, other.characteristics.characteristicUuid);
+		return val < 0;
+	}
+
+	void waitDone() {
+		unique_lock valuesLock(valuesMutex);
+		doneSignal.wait(valuesLock, [&]{ return done; });
+	}
+	void finish()
+	{
+		done = true;
+		doneSignal.notify_one();
+	}
+
+	bool operator==(Reading& other) {
+		return *this == other.characteristics;
+	}
+
+	bool operator==(BLECharacteristic& other) {
+		return (
+			(wcscmp(this->characteristics.characteristicUuid, other.characteristicUuid) == 0) &&
+			(wcscmp(this->characteristics.serviceUuid, other.serviceUuid) == 0) &&
+			(wcscmp(this->characteristics.deviceId, other.deviceId) == 0));
+	}
+
+	void reuseRead() {
+		lock_guard readingLock(readingMutex);
+		this->reading = true;
+	}
+
+	bool isReading() {
+		lock_guard readingLock(readingMutex);
+		return this->reading;
+	}
+
+	void stopReading(bool lock = false)
+	{
+		if (lock) {
+			unique_lock readingLock(readingMutex);
+		}
+		else {
+			lock_guard readingLock(readingMutex);
+			this->reading = false;
+		}
+	}
+
+	void setData(uint8_t* data, uint32_t len) {
+		lock_guard lock(valuesMutex);
+		uint64_t l = min(len, sizeof(values));
+		memcpy(values, data, l);
+		++readIndex;
+	}
+
+	void getData(uint8_t* data, uint32_t len)
+	{
+		lock_guard lock(valuesMutex);
+		uint64_t l = min(len, sizeof(values));
+		memcpy(data, values, l);
+	}
+
+};
+
+mutex readingsLock;
+vector<Reading*> readings;
+
+fire_and_forget ReadDataAsync(Reading* reading) {
 	try {
-		auto characteristic = co_await retrieveCharacteristic(id->deviceId, id->serviceUuid, id->characteristicUuid);
-		if (characteristic != nullptr) {
-			//Retrieve data from device not from windows cache
-			auto status = co_await characteristic.ReadValueAsync(BluetoothCacheMode::Uncached);
-			if (status.Status() == GattCommunicationStatus::Success) {
-				auto value = status.Value();
-				auto valueData = value.data();
-				uint32_t length = max(value.Length(), ARRAY_LENGTH(data->buf));
-				for (uint32_t i = 0; i < length; ++i) {
-					data->buf[i] = valueData[i];
+		//auto c = characteristic.CharacteristicProperties();
+		//if (((uint32_t)c & (uint32_t)GattCharacteristicProperties::Read) == 0) {
+		//	saveError(L"%s:%d Characteristic %s does not have read property!", __WFILE__, __LINE__, id->characteristicUuid);
+		//	co_return;
+		//}
+		while (reading->isReading()) {
+			auto characteristic = co_await retrieveCharacteristic(reading->getDevice(), reading->getService(), reading->getCharacteristic());
+			if (characteristic != nullptr) {
+				auto status = co_await characteristic.ReadValueAsync();
+				if (status.Status() == GattCommunicationStatus::Success) {
+					auto value = status.Value();
+					auto valueData = value.data();
+					reading->setData(valueData, value.Length());
 				}
-				if (length < value.Length()) {
-					saveError(L"%s:%d Not all data could fit in the buffer, characteristic uuid: %s", __WFILE__, __LINE__, id->characteristicUuid);
+				else {
+					saveError(L"%s:%d (%d)Error reading value from characteristic with uuid %s", __WFILE__, __LINE__, (int)status.Status(), reading->getCharacteristic());
 				}
-				data->size = value.Length();
-				if (result != 0)
-					*result = true;
 			}
-			else {
-				saveError(L"%s:%d (%d)Error reading value from characteristic with uuid %s", __WFILE__, __LINE__, (int)status.Status(), id->characteristicUuid);
-			}
+			co_await resume_after(33ms);
 		}
 	}
 	catch (hresult_error& ex)
 	{
 		saveError(L"%s:%d ReadDataAsync catch: %s", __WFILE__, __LINE__, ex.message().c_str());
 	}
-	if (signal != 0)
-		signal->notify_one();
+	reading->finish();
 }
-bool ReadData(BLECharacteristic* id, BLEData* data, bool block) {
-	if (data == nullptr || id == nullptr)
-	{
-		saveError(L"%s:%d ReadData data or id can not be NULL", __WFILE__, __LINE__);
-		return false;
-	}
-	mutex _mutex;
-	unique_lock<mutex> lock(_mutex);
-	condition_variable signal;
-	bool result = false;
-	ReadDataAsync(id, data, block ? &signal : 0, block ? &result : 0);
-	if (block)
-		signal.wait(lock);
 
-	return result;
+void ReadData(BLECharacteristic* id) {
+	if (id == nullptr ||
+		id->characteristicUuid == nullptr ||
+		id->deviceId == nullptr ||
+		id->serviceUuid == nullptr)
+	{
+		saveError(L"%s:%d None of the ids can be NULL", __WFILE__, __LINE__);
+		return;
+	}
+	Reading* reading = nullptr;
+	for (Reading* r : readings) {
+		if (*r == *id) {
+			reading = r;
+			reading->reuseRead();
+			break;
+		}
+	}
+	if (reading == nullptr) reading = new Reading();
+	memcpy(reading->getService(), id->serviceUuid, UUID_LENGTH);
+	memcpy(reading->getCharacteristic(), id->characteristicUuid, UUID_LENGTH);
+	memcpy(reading->getDevice(), id->deviceId, UUID_LENGTH);
+	{
+		lock_guard readingsGuard(readingsLock);
+		readings.push_back(reading);
+	}
+	ReadDataAsync(reading);
+}
+
+
+void StopReadData(BLECharacteristic* id) {
+	for (Reading* r : readings) {
+		if (*r == *id) {
+			r->stopReading();
+			break;
+		}
+	}
+}
+
+void CancelRead(BLECharacteristic* id)
+{
+	lock_guard readingsGuard(readingsLock);
+	for (auto reading : readings)
+	{
+		if (*reading == *id) {
+			reading->stopReading();
+		}
+	}
+}
+
+void PollReadData(BLECharacteristic* id, uint8_t* data)
+{
+	lock_guard readingsGuard(readingsLock);
+	for (auto reading : readings)
+	{
+		if (*reading == *id) {
+			reading->getData(data, 512);
+			break;
+		}
+	}
 }
 
 void Quit() {
@@ -615,6 +744,16 @@ void Quit() {
 		lock_guard lock(quitLock);
 		quitFlag = true;
 	}
+	lock_guard readingsGuard(readingsLock);
+	for (auto reading : readings) {
+		reading->stopReading();
+	}
+	for (auto reading : readings) {
+		reading->waitDone();
+		delete reading;
+	}
+	readings.clear();
+
 	StopDeviceScan();
 	deviceQueueSignal.notify_one();
 	{
