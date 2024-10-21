@@ -75,7 +75,7 @@ namespace DebugBle
                 while (!done)
                 {
                     byte[] data = new byte[512];
-                    BLE.Impl.PollReadData(characteristic, data);
+                    BLE.Impl.PollReadData(characteristic, data, (ushort)data.Length);
                     if(data != null)
                         Console.WriteLine("[{0}]", string.Join(", ", data));
                     if (i >= 100) done = true;

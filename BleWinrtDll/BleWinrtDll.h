@@ -70,7 +70,7 @@ extern "C" {
 
 	__declspec(dllexport) void StopReadData(BLECharacteristic* id);
 
-	__declspec(dllexport) void PollReadData(BLECharacteristic* id, uint8_t* data);
+	__declspec(dllexport) void PollReadData(BLECharacteristic* id, uint8_t* data, uint16_t size);
 	
 	__declspec(dllexport) void Quit();
 

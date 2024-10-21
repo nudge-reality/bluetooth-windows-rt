@@ -4,7 +4,6 @@
 #include "stdafx.h"
 
 #include "BleWinrtDll.h"
-//#include <coroutine>
 
 #pragma comment(lib, "windowsapp")
 
@@ -105,7 +104,6 @@ void saveError(const wchar_t* message, ...) {
 	va_start(args, message);
 	vswprintf_s(last_error, message, args);
 	va_end(args);
-	//wcout << last_error << endl;
 }
 
 IAsyncOperation<BluetoothLEDevice> retrieveDevice(wchar_t* deviceId) {
@@ -570,7 +568,7 @@ class Reading {
 	uint8_t values[512] = {};
 	uint32_t valueCount = 0;
 	uint32_t readIndex = -1;
-	BLECharacteristic characteristics;
+	BLECharacteristic characteristics = {};
 	bool done = false;
 public:
 
@@ -650,11 +648,6 @@ vector<Reading*> readings;
 
 fire_and_forget ReadDataAsync(Reading* reading) {
 	try {
-		//auto c = characteristic.CharacteristicProperties();
-		//if (((uint32_t)c & (uint32_t)GattCharacteristicProperties::Read) == 0) {
-		//	saveError(L"%s:%d Characteristic %s does not have read property!", __WFILE__, __LINE__, id->characteristicUuid);
-		//	co_return;
-		//}
 		while (reading->isReading()) {
 			auto characteristic = co_await retrieveCharacteristic(reading->getDevice(), reading->getService(), reading->getCharacteristic());
 			if (characteristic != nullptr) {
@@ -727,13 +720,13 @@ void CancelRead(BLECharacteristic* id)
 	}
 }
 
-void PollReadData(BLECharacteristic* id, uint8_t* data)
+void PollReadData(BLECharacteristic* id, uint8_t* data, uint16_t size)
 {
 	lock_guard readingsGuard(readingsLock);
 	for (auto reading : readings)
 	{
 		if (*reading == *id) {
-			reading->getData(data, 512);
+			reading->getData(data, size);
 			break;
 		}
 	}

@@ -112,7 +112,7 @@ public class BLE
         public static extern void StopReadData(in BLECharacteristic id);
 
         [DllImport(DLL_NAME, EntryPoint = "PollReadData")]
-        public static extern void PollReadData(in BLECharacteristic id, [In, Out] byte[] data);
+        public static extern void PollReadData(in BLECharacteristic id, [In, Out] byte[] data, ushort size);
 
         [DllImport(DLL_NAME, EntryPoint = "Quit")]
         public static extern void Quit();
