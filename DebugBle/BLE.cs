@@ -14,7 +14,7 @@ public class BLE
         "BleWinrtDll.dll";
 #endif
     // dll calls
-    class Impl
+    public class Impl
     {
         public enum ScanStatus { PROCESSING, AVAILABLE, FINISHED };
 
@@ -78,8 +78,8 @@ public class BLE
         {
             [MarshalAs(UnmanagedType.ByValArray, SizeConst = 512)]
             public byte[] buf;
-            [MarshalAs(UnmanagedType.I2)]
-            public short size;
+            [MarshalAs(UnmanagedType.U2)]
+            public ushort size;
             [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)]
             public string deviceId;
             [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)]
@@ -106,7 +106,13 @@ public class BLE
         };
 
         [DllImport(DLL_NAME, EntryPoint = "ReadData")]
-        public static extern bool ReadData(in BLECharacteristic id, out BLEData dataOut, bool block);
+        public static extern void ReadData(in BLECharacteristic id);
+
+        [DllImport(DLL_NAME, EntryPoint = "StopReadData")]
+        public static extern void StopReadData(in BLECharacteristic id);
+
+        [DllImport(DLL_NAME, EntryPoint = "PollReadData")]
+        public static extern void PollReadData(in BLECharacteristic id, [In, Out] byte[] data, ushort size);
 
         [DllImport(DLL_NAME, EntryPoint = "Quit")]
         public static extern void Quit();
@@ -185,37 +191,9 @@ public class BLE
         return currentScan;
     }
 
-    public static Dictionary<string, ushort> ReadData(string deviceId, Dictionary<string, Dictionary<string, string>> profile)
+    public static void ReadData(Impl.BLECharacteristic characteristic)
     {
-        Dictionary<string, ushort> ret = new Dictionary<string, ushort>();
-        foreach (var service in profile)
-        {
-            foreach (var characteristics in service.Value)
-            {
-                Impl.BLECharacteristic characteristic = new Impl.BLECharacteristic
-                {
-                    deviceId = deviceId,
-                    serviceUuid = service.Key,
-                    characteristicUuid = characteristics.Key
-                };
-                Impl.BLEData data = new Impl.BLEData
-                {
-                    buf = new byte[512]
-                };
-                data.buf[0] = 1;
-                bool gotData = Impl.ReadData(characteristic, out data, true);
-                if (gotData)
-                {
-                    if (data.size > 0)
-                    {
-                        Debug.Log(data.size);
-                        //Debug.Log(data.buf);
-                    }
-                    ret.Add(characteristics.Key, (ushort)(data.buf[0] + (data.buf[1] << 8)));
-                }
-            }
-        }
-        return ret;
+        Impl.ReadData(characteristic);
     }
 
     public static void RetrieveProfile(string deviceId, string serviceUuid)
@@ -280,20 +258,23 @@ public class BLE
         } while (status != Impl.ScanStatus.FINISHED);
         // wait some delay to prevent error
         Thread.Sleep(200);
+        Debug.Log("Scanning for characteristics");
         Impl.Characteristic c = new Impl.Characteristic();
         foreach (var s in device)
         {
             Impl.ScanCharacteristics(deviceId, s.Key);
             do {
-                status = Impl.PollCharacteristic(out c, false);
+                status = Impl.PollCharacteristic(out c, true);
                 if (status == Impl.ScanStatus.AVAILABLE)
                 {
+                    Debug.Log(GetError());
                     Debug.Log("characteristic found: " + c.uuid + ", user description: " + c.userDescription);
                     if (!s.Value.ContainsKey(c.uuid))
                     {
                         s.Value.Add(c.uuid, c.userDescription);
                     }
                 }
+                Thread.Sleep(30);
             } while (status != Impl.ScanStatus.FINISHED);
         }
         return device;
@@ -303,7 +284,7 @@ public class BLE
     {
         Impl.BLEData packageSend;
         packageSend.buf = new byte[512];
-        packageSend.size = (short)data.Length;
+        packageSend.size = (ushort)data.Length;
         packageSend.deviceId = deviceId;
         packageSend.serviceUuid = serviceUuid;
         packageSend.characteristicUuid = characteristicUuid;
