@@ -1,9 +1,6 @@
 #pragma once
-
 #include "stdafx.h"
-
-//Macro to determine the length of an C array
-#define ARRAY_LENGTH(a) ((sizeof((a))) / (sizeof(*(a))))
+#include "Helpers.h"
 
 struct DeviceUpdate {
 	wchar_t id[100];
@@ -21,8 +18,6 @@ struct Characteristic {
 	wchar_t uuid[100];
 	wchar_t userDescription[100];
 };
-
-#define UUID_LENGTH 256
 
 struct BLEData {
 	uint8_t buf[512];

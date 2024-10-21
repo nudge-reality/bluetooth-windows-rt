@@ -27,6 +27,18 @@
     <ClInclude Include="resource.h">
       <Filter>Headerdateien</Filter>
     </ClInclude>
+    <ClInclude Include="reading.h">
+      <Filter>Headerdateien</Filter>
+    </ClInclude>
+    <ClInclude Include="helpers.h">
+      <Filter>Headerdateien</Filter>
+    </ClInclude>
+    <ClInclude Include="deviceCaching.h">
+      <Filter>Headerdateien</Filter>
+    </ClInclude>
+    <ClInclude Include="logging.h">
+      <Filter>Headerdateien</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="stdafx.cpp">
@@ -36,6 +48,18 @@
       <Filter>Quelldateien</Filter>
     </ClCompile>
     <ClCompile Include="dllmain.cpp">
+      <Filter>Quelldateien</Filter>
+    </ClCompile>
+    <ClCompile Include="helpers.cpp">
+      <Filter>Quelldateien</Filter>
+    </ClCompile>
+    <ClCompile Include="deviceCaching.cpp">
+      <Filter>Quelldateien</Filter>
+    </ClCompile>
+    <ClCompile Include="logging.cpp">
+      <Filter>Quelldateien</Filter>
+    </ClCompile>
+    <ClCompile Include="reading.cpp">
       <Filter>Quelldateien</Filter>
     </ClCompile>
   </ItemGroup>

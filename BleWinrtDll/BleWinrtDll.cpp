@@ -4,165 +4,27 @@
 #include "stdafx.h"
 
 #include "BleWinrtDll.h"
+#include "reading.h"
+#include "deviceCaching.h"
+#include "logging.h"
+#include "helpers.h"
 
 #pragma comment(lib, "windowsapp")
 
 // macro for file, see also https://stackoverflow.com/a/14421702
 #define __WFILE__ L"BleWinrtDll.cpp"
+using std::mutex;
 
-using namespace std;
+using namespace winrt::Windows::Foundation;
+using namespace winrt::Windows::Foundation::Collections;
+using namespace winrt::Windows::Web::Syndication;
 
-using namespace winrt;
-using namespace Windows::Foundation;
-using namespace Windows::Foundation::Collections;
-using namespace Windows::Web::Syndication;
+using namespace winrt::Windows::Devices::Bluetooth;
+using namespace winrt::Windows::Devices::Bluetooth::GenericAttributeProfile;
+using namespace winrt::Windows::Devices::Enumeration;
 
-using namespace Windows::Devices::Bluetooth;
-using namespace Windows::Devices::Bluetooth::GenericAttributeProfile;
-using namespace Windows::Devices::Enumeration;
+using namespace winrt::Windows::Storage::Streams;
 
-using namespace Windows::Storage::Streams;
-
-union to_guid
-{
-	uint8_t buf[16];
-	guid guid;
-};
-
-const uint8_t BYTE_ORDER[] = { 3, 2, 1, 0, 5, 4, 7, 6, 8, 9, 10, 11, 12, 13, 14, 15 };
-
-guid make_guid(const wchar_t* value)
-{
-	to_guid to_guid;
-	memset(&to_guid, 0, sizeof(to_guid));
-	int offset = 0;
-	for (int i = 0; i < wcslen(value); i++) {
-		if (value[i] >= '0' && value[i] <= '9')
-		{
-			uint8_t digit = value[i] - '0';
-			to_guid.buf[BYTE_ORDER[offset / 2]] += offset % 2 == 0 ? digit << 4 : digit;
-			offset++;
-		}
-		else if (value[i] >= 'A' && value[i] <= 'F')
-		{
-			uint8_t digit = 10 + value[i] - 'A';
-			to_guid.buf[BYTE_ORDER[offset / 2]] += offset % 2 == 0 ? digit << 4 : digit;
-			offset++;
-		}
-		else if (value[i] >= 'a' && value[i] <= 'f')
-		{
-			uint8_t digit = 10 + value[i] - 'a';
-			to_guid.buf[BYTE_ORDER[offset / 2]] += offset % 2 == 0 ? digit << 4 : digit;
-			offset++;
-		}
-		else
-		{
-			// skip char
-		}
-	}
-	return to_guid.guid;
-}
-
-// implement own caching instead of using the system-provicded cache as there is an AccessDenied error when trying to
-// call GetCharacteristicsAsync on a service for which a reference is hold in global scope
-// cf. https://stackoverflow.com/a/36106137
-
-mutex errorLock;
-wchar_t last_error[2048];
-struct CharacteristicCacheEntry {
-	GattCharacteristic characteristic = nullptr;
-};
-struct ServiceCacheEntry {
-	GattDeviceService service = nullptr;
-	map<long, CharacteristicCacheEntry> characteristics = { };
-};
-struct DeviceCacheEntry {
-	BluetoothLEDevice device = nullptr;
-	map<long, ServiceCacheEntry> services = { };
-};
-map<long, DeviceCacheEntry> cache;
-
-
-// using hashes of uuids to omit storing the c-strings in reliable storage
-long hsh(wchar_t* wstr)
-{
-	long hash = 5381;
-	int c;
-	while (c = *wstr++)
-		hash = ((hash << 5) + hash) + c;
-	return hash;
-}
-
-void clearError() {
-	lock_guard error_lock(errorLock);
-	wcscpy_s(last_error, L"Ok");
-}
-
-void saveError(const wchar_t* message, ...) {
-	lock_guard error_lock(errorLock);
-	va_list args;
-	va_start(args, message);
-	vswprintf_s(last_error, message, args);
-	va_end(args);
-}
-
-IAsyncOperation<BluetoothLEDevice> retrieveDevice(wchar_t* deviceId) {
-	if (cache.count(hsh(deviceId)))
-		co_return cache[hsh(deviceId)].device;
-	// !!!! BluetoothLEDevice.FromIdAsync may prompt for consent, in this case bluetooth will fail in unity!
-	BluetoothLEDevice result = co_await BluetoothLEDevice::FromIdAsync(deviceId);
-	if (result == nullptr) {
-		saveError(L"%s:%d Failed to connect to device.", __WFILE__, __LINE__);
-		co_return nullptr;
-	}
-	else {
-		clearError();
-		cache[hsh(deviceId)] = { result };
-		co_return cache[hsh(deviceId)].device;
-	}
-}
-IAsyncOperation<GattDeviceService> retrieveService(wchar_t* deviceId, wchar_t* serviceId) {
-	auto device = co_await retrieveDevice(deviceId);
-	if (device == nullptr)
-		co_return nullptr;
-	if (cache[hsh(deviceId)].services.count(hsh(serviceId)))
-		co_return cache[hsh(deviceId)].services[hsh(serviceId)].service;
-	GattDeviceServicesResult result = co_await device.GetGattServicesForUuidAsync(make_guid(serviceId), BluetoothCacheMode::Cached);
-	if (result.Status() != GattCommunicationStatus::Success) {
-		saveError(L"%s:%d Failed retrieving services.", __WFILE__, __LINE__);
-		co_return nullptr;
-	}
-	else if (result.Services().Size() == 0) {
-		saveError(L"%s:%d No service found with uuid ", __WFILE__, __LINE__);
-		co_return nullptr;
-	}
-	else {
-		clearError();
-		cache[hsh(deviceId)].services[hsh(serviceId)] = { result.Services().GetAt(0) };
-		co_return cache[hsh(deviceId)].services[hsh(serviceId)].service;
-	}
-}
-IAsyncOperation<GattCharacteristic> retrieveCharacteristic(wchar_t* deviceId, wchar_t* serviceId, wchar_t* characteristicId) {
-	auto service = co_await retrieveService(deviceId, serviceId);
-	if (service == nullptr)
-		co_return nullptr;
-	if (cache[hsh(deviceId)].services[hsh(serviceId)].characteristics.count(hsh(characteristicId)))
-		co_return cache[hsh(deviceId)].services[hsh(serviceId)].characteristics[hsh(characteristicId)].characteristic;
-	GattCharacteristicsResult result = co_await service.GetCharacteristicsForUuidAsync(make_guid(characteristicId), BluetoothCacheMode::Cached);
-	if (result.Status() != GattCommunicationStatus::Success) {
-		saveError(L"%s:%d Error scanning characteristics from service %s with status %d", __WFILE__, __LINE__, serviceId, result.Status());
-		co_return nullptr;
-	}
-	else if (result.Characteristics().Size() == 0) {
-		saveError(L"%s:%d No characteristic found with uuid %s", __WFILE__, __LINE__, characteristicId);
-		co_return nullptr;
-	}
-	else {
-		clearError();
-		cache[hsh(deviceId)].services[hsh(serviceId)].characteristics[hsh(characteristicId)] = { result.Characteristics().GetAt(0) };
-		co_return cache[hsh(deviceId)].services[hsh(serviceId)].characteristics[hsh(characteristicId)].characteristic;
-	}
-}
 
 DeviceWatcher deviceWatcher{ nullptr };
 DeviceWatcher::Added_revoker deviceWatcherAddedRevoker;
@@ -184,9 +46,8 @@ mutex characteristicQueueLock;
 condition_variable characteristicQueueSignal;
 bool characteristicScanFinished;
 
-// global flag to release calling thread
-mutex quitLock;
-bool quitFlag = false;
+mutex readingsLock;
+vector<Reading*> readings;
 
 struct Subscription {
 	GattCharacteristic characteristic = nullptr;
@@ -199,17 +60,6 @@ condition_variable subscribeQueueSignal;
 queue<BLEData> dataQueue{};
 mutex dataQueueLock;
 condition_variable dataQueueSignal;
-
-bool QuittableWait(condition_variable& signal, unique_lock<mutex>& waitLock) {
-	{
-		lock_guard quit_lock(quitLock);
-		if (quitFlag)
-			return true;
-	}
-	signal.wait(waitLock);
-	lock_guard quit_lock(quitLock);
-	return quitFlag;
-}
 
 void DeviceWatcher_Added(DeviceWatcher sender, DeviceInformation deviceInfo) {
 	DeviceUpdate deviceUpdate;
@@ -557,95 +407,6 @@ bool SendData(BLEData* data, bool block) {
 	return result;
 }
 
-//Internal class for handling a coroutine constantly Reading data from characteristic
-//Thread safe?
-class Reading {
- 	bool reading = true;
-	mutex readingMutex;
-
-	mutex valuesMutex;
-	condition_variable doneSignal;
-	uint8_t values[512] = {};
-	uint32_t valueCount = 0;
-	uint32_t readIndex = -1;
-	BLECharacteristic characteristics = {};
-	bool done = false;
-public:
-
-	wchar_t* getDevice() { return this->characteristics.deviceId; }
-	wchar_t* getService() { return this->characteristics.serviceUuid; }
-	wchar_t* getCharacteristic() { return this->characteristics.characteristicUuid; }
-
-	bool operator<(Reading& other) {
-		int val = wcscmp(this->characteristics.deviceId, other.characteristics.deviceId);
-		if (val != 0) return val < 0;
-		val = wcscmp(this->characteristics.serviceUuid, other.characteristics.serviceUuid);
-		if (val != 0) return val < 0;
-		val = wcscmp(this->characteristics.characteristicUuid, other.characteristics.characteristicUuid);
-		return val < 0;
-	}
-
-	void waitDone() {
-		unique_lock valuesLock(valuesMutex);
-		doneSignal.wait(valuesLock, [&]{ return done; });
-	}
-	void finish()
-	{
-		done = true;
-		doneSignal.notify_one();
-	}
-
-	bool operator==(Reading& other) {
-		return *this == other.characteristics;
-	}
-
-	bool operator==(BLECharacteristic& other) {
-		return (
-			(wcscmp(this->characteristics.characteristicUuid, other.characteristicUuid) == 0) &&
-			(wcscmp(this->characteristics.serviceUuid, other.serviceUuid) == 0) &&
-			(wcscmp(this->characteristics.deviceId, other.deviceId) == 0));
-	}
-
-	void reuseRead() {
-		lock_guard readingLock(readingMutex);
-		this->reading = true;
-	}
-
-	bool isReading() {
-		lock_guard readingLock(readingMutex);
-		return this->reading;
-	}
-
-	void stopReading(bool lock = false)
-	{
-		if (lock) {
-			unique_lock readingLock(readingMutex);
-		}
-		else {
-			lock_guard readingLock(readingMutex);
-			this->reading = false;
-		}
-	}
-
-	void setData(uint8_t* data, uint32_t len) {
-		lock_guard lock(valuesMutex);
-		uint64_t l = min(len, sizeof(values));
-		memcpy(values, data, l);
-		++readIndex;
-	}
-
-	void getData(uint8_t* data, uint32_t len)
-	{
-		lock_guard lock(valuesMutex);
-		uint64_t l = min(len, sizeof(values));
-		memcpy(data, values, l);
-	}
-
-};
-
-mutex readingsLock;
-vector<Reading*> readings;
-
 fire_and_forget ReadDataAsync(Reading* reading) {
 	try {
 		while (reading->isReading()) {
@@ -782,9 +543,4 @@ void Quit() {
 		}
 	}
 	cache.clear();
-}
-
-void GetError(ErrorMessage* buf) {
-	lock_guard error_lock(errorLock);
-	wcscpy_s(buf->msg, last_error);
 }
